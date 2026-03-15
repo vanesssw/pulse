@@ -188,7 +188,16 @@ async def run_mission(request: MissionRequest):
 3. $Cashtag Scanner: Social sentiment, mentions velocity, influencer activity
 4. Risk Assessor: Market structure, funding rates, liquidation levels
 
-Give each agent a section with their analysis, then provide a final SYNTHESIS with clear verdict and action. Be specific with data and numbers. English only."""
+DATA RULES (STRICT):
+- If the user message contains a section like "LIVE MARKET SNAPSHOT", treat it as ground truth.
+- Use ONLY the factual numbers/metrics explicitly present in the user's message.
+- If a metric is not provided (RSI, funding rate, OI, liquidation levels, whale tx counts, exchange flows, mention velocity, influencer names, etc.), write "Unknown" and do NOT guess.
+- Do NOT cite specific third-party sources (e.g., Hyblock, Glassnode) unless they are explicitly provided in the user's message.
+
+OUTPUT:
+- Give each agent a section with their analysis, then provide a final SYNTHESIS with clear verdict and action.
+- Keep it concise, actionable, and consistent with provided data.
+- English only."""
         
         # Call DeepSeek API
         response = deepseek_client.chat.completions.create(

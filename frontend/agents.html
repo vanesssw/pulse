@@ -166,11 +166,13 @@ function stab(id, el) {
 
 const MD = [{ s: 'BTC', c: 2.18, v: 38.2, m: 1937 }, { s: 'ETH', c: 1.87, v: 14.8, m: 329 }, { s: 'SOL', c: 4.52, v: 3.4, m: 95.6 }, { s: 'XRP', c: -.74, v: 4.2, m: 146 }, { s: 'DOGE', c: 3.21, v: 1.8, m: 38.2 }, { s: 'ADA', c: 1.15, v: .68, m: 27.8 }, { s: 'TON', c: -1.32, v: .32, m: 12.5 }, { s: 'AVAX', c: 2.67, v: .41, m: 9.9 }];
 let marketData = [];
+let marketCoins = [];
 
 async function loadChartData() {
   try {
     const data = await API.market();
     if (data && data.length > 0) {
+      marketCoins = data;
       marketData = data.map(coin => ({
         s: coin.symbol.toUpperCase(),
         c: coin.price_change_percentage_24h_in_currency || 0,
@@ -232,6 +234,41 @@ const AGENTS = [
 ];
 
 let running = false;
+
+function _extractTickers(task) {
+  const m = String(task || '').match(/\$[A-Z0-9]{2,10}/g) || [];
+  const uniq = [];
+  m.forEach(x => { if (!uniq.includes(x)) uniq.push(x); });
+  return uniq.map(x => x.replace('$', ''));
+}
+
+function _marketSnapshotForTickers(tickers, coins) {
+  if (!tickers || !tickers.length) return '';
+  if (!Array.isArray(coins) || !coins.length) return '';
+  const out = [];
+  tickers.forEach(t => {
+    const c = coins.find(x => String(x.symbol || '').toUpperCase() === String(t).toUpperCase());
+    if (!c) return;
+    const price = (typeof c.current_price === 'number') ? c.current_price : null;
+    const ch24 = (typeof c.price_change_percentage_24h_in_currency === 'number') ? c.price_change_percentage_24h_in_currency : null;
+    const vol = (typeof c.total_volume === 'number') ? c.total_volume : null;
+    const mcap = (typeof c.market_cap === 'number') ? c.market_cap : null;
+    out.push(`$${String(t).toUpperCase()}: price_usd=${price ?? 'unknown'}, change_24h_pct=${ch24 ?? 'unknown'}, volume_24h_usd=${vol ?? 'unknown'}, market_cap_usd=${mcap ?? 'unknown'}`);
+  });
+  return out.length ? out.join('\n') : '';
+}
+
+async function _buildMissionTask(task) {
+  const tickers = _extractTickers(task);
+  let coins = marketCoins;
+  if ((!coins || !coins.length) && (await API._backendAvailable())) {
+    try { coins = await API.topCoins(100); } catch {}
+  }
+  const snap = _marketSnapshotForTickers(tickers, coins);
+  if (!snap) return task;
+  return `${task}\n\nLIVE MARKET SNAPSHOT (do not contradict; if missing metrics -> Unknown):\n${snap}`;
+}
+
 async function launch() {
   const task = document.getElementById('tIn').value.trim(); if (!task || running) return; running = true;
   document.getElementById('trS').style.display = 'block'; document.getElementById('prW').style.display = 'block'; document.getElementById('synD').className = 'syn';
@@ -240,7 +277,8 @@ async function launch() {
   uP(5, 'Decomposing task...'); await dl(800);
 
   // Try real API mission
-  const realSynth = API.mission(task); // fire async
+  const missionTask = await _buildMissionTask(task);
+  const realSynth = API.mission(missionTask); // fire async
 
   const sc = document.getElementById('subA');
   const results = [];
