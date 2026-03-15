@@ -245,25 +245,6 @@ function _extractTickers(task) {
   });
   let tickers = uniq.map(x => x.replace('$', ''));
 
-  // If no $TICKER found, try to infer from words using available market symbols
-  if (!tickers.length) {
-    const words = txt.toUpperCase().match(/[A-Z0-9]{2,10}/g) || [];
-    const known = new Set();
-    (marketCoins || []).forEach(c => {
-      const s = String(c.symbol || '').toUpperCase();
-      if (s) known.add(s);
-    });
-    (MD || []).forEach(x => {
-      const s = String(x.s || '').toUpperCase();
-      if (s) known.add(s);
-    });
-    const found = [];
-    words.forEach(w => {
-      if (known.has(w) && !found.includes(w)) found.push(w);
-    });
-    tickers = found;
-  }
-
   return tickers;
 }
 
@@ -284,11 +265,35 @@ function _marketSnapshotForTickers(tickers, coins) {
 }
 
 async function _buildMissionTask(task) {
-  const tickers = _extractTickers(task);
+  let tickers = _extractTickers(task);
   let coins = marketCoins;
   if (!coins || !coins.length) {
     try { coins = await API.topCoins(100); } catch {}
   }
+
+  if (!tickers.length) {
+    const txt = String(task || '').toUpperCase();
+    const words = txt.match(/[A-Z0-9]{2,10}/g) || [];
+    const known = new Set();
+    (coins || []).forEach(c => {
+      const s = String(c.symbol || '').toUpperCase();
+      if (s) known.add(s);
+    });
+    (MD || []).forEach(x => {
+      const s = String(x.s || '').toUpperCase();
+      if (s) known.add(s);
+    });
+    const found = [];
+    words.forEach(w => {
+      if (known.has(w) && !found.includes(w)) found.push(w);
+    });
+    tickers = found;
+  }
+
+  if (!tickers.length && Array.isArray(coins) && coins.length) {
+    tickers = coins.slice(0, 10).map(c => String(c.symbol || '').toUpperCase()).filter(Boolean);
+  }
+
   const snap = _marketSnapshotForTickers(tickers, coins);
   if (!snap) return task;
   return `${task}\n\nLIVE MARKET SNAPSHOT (do not contradict; if missing metrics -> Unknown):\n${snap}`;
