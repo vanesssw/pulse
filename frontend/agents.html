@@ -236,10 +236,35 @@ const AGENTS = [
 let running = false;
 
 function _extractTickers(task) {
-  const m = String(task || '').match(/\$[A-Z0-9]{2,10}/g) || [];
+  const txt = String(task || '');
+  const m = txt.match(/\$[A-Z0-9]{2,10}/gi) || [];
   const uniq = [];
-  m.forEach(x => { if (!uniq.includes(x)) uniq.push(x); });
-  return uniq.map(x => x.replace('$', ''));
+  m.forEach(x => {
+    const t = x.toUpperCase();
+    if (!uniq.includes(t)) uniq.push(t);
+  });
+  let tickers = uniq.map(x => x.replace('$', ''));
+
+  // If no $TICKER found, try to infer from words using available market symbols
+  if (!tickers.length) {
+    const words = txt.toUpperCase().match(/[A-Z0-9]{2,10}/g) || [];
+    const known = new Set();
+    (marketCoins || []).forEach(c => {
+      const s = String(c.symbol || '').toUpperCase();
+      if (s) known.add(s);
+    });
+    (MD || []).forEach(x => {
+      const s = String(x.s || '').toUpperCase();
+      if (s) known.add(s);
+    });
+    const found = [];
+    words.forEach(w => {
+      if (known.has(w) && !found.includes(w)) found.push(w);
+    });
+    tickers = found;
+  }
+
+  return tickers;
 }
 
 function _marketSnapshotForTickers(tickers, coins) {
@@ -261,7 +286,7 @@ function _marketSnapshotForTickers(tickers, coins) {
 async function _buildMissionTask(task) {
   const tickers = _extractTickers(task);
   let coins = marketCoins;
-  if ((!coins || !coins.length) && (await API._backendAvailable())) {
+  if (!coins || !coins.length) {
     try { coins = await API.topCoins(100); } catch {}
   }
   const snap = _marketSnapshotForTickers(tickers, coins);
