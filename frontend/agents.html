@@ -256,10 +256,26 @@ function _marketSnapshotForTickers(tickers, coins) {
     const c = coins.find(x => String(x.symbol || '').toUpperCase() === String(t).toUpperCase());
     if (!c) return;
     const price = (typeof c.current_price === 'number') ? c.current_price : null;
+    const ch1h = (typeof c.price_change_percentage_1h_in_currency === 'number') ? c.price_change_percentage_1h_in_currency : null;
     const ch24 = (typeof c.price_change_percentage_24h_in_currency === 'number') ? c.price_change_percentage_24h_in_currency : null;
+    const ch7d = (typeof c.price_change_percentage_7d_in_currency === 'number') ? c.price_change_percentage_7d_in_currency : null;
     const vol = (typeof c.total_volume === 'number') ? c.total_volume : null;
     const mcap = (typeof c.market_cap === 'number') ? c.market_cap : null;
-    out.push(`$${String(t).toUpperCase()}: price_usd=${price ?? 'unknown'}, change_24h_pct=${ch24 ?? 'unknown'}, volume_24h_usd=${vol ?? 'unknown'}, market_cap_usd=${mcap ?? 'unknown'}`);
+    const hi24 = (typeof c.high_24h === 'number') ? c.high_24h : null;
+    const lo24 = (typeof c.low_24h === 'number') ? c.low_24h : null;
+    const ath = (typeof c.ath === 'number') ? c.ath : null;
+    const atl = (typeof c.atl === 'number') ? c.atl : null;
+    const srSupport = (typeof lo24 === 'number') ? lo24 : null;
+    const srResistance = (typeof hi24 === 'number') ? hi24 : null;
+    out.push(
+      `$${String(t).toUpperCase()}: ` +
+      `price_usd=${price ?? 'unknown'}, ` +
+      `change_1h_pct=${ch1h ?? 'unknown'}, change_24h_pct=${ch24 ?? 'unknown'}, change_7d_pct=${ch7d ?? 'unknown'}, ` +
+      `high_24h_usd=${hi24 ?? 'unknown'}, low_24h_usd=${lo24 ?? 'unknown'}, ` +
+      `volume_24h_usd=${vol ?? 'unknown'}, market_cap_usd=${mcap ?? 'unknown'}, ` +
+      `ath_usd=${ath ?? 'unknown'}, atl_usd=${atl ?? 'unknown'}, ` +
+      `support_hint_usd=${srSupport ?? 'unknown'}, resistance_hint_usd=${srResistance ?? 'unknown'}`
+    );
   });
   return out.length ? out.join('\n') : '';
 }
