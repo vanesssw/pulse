@@ -129,6 +129,17 @@ const API = {
     return { status: "error", data: [], message: "Backend unavailable" };
   },
 
+  async derivatives(symbol) {
+    const s = String(symbol || '').trim();
+    if (!s) return null;
+    try {
+      if (await this._backendAvailable()) {
+        return await this._req('GET', `/api/market/derivatives/${encodeURIComponent(s)}`);
+      }
+    } catch {}
+    return null;
+  },
+
   // ── Radar ──
   async radarSignals(limit = 80) {
     try {

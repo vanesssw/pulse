@@ -15,7 +15,7 @@ COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")
 IDS = "bitcoin,ethereum,solana,dogecoin,ripple,cardano,the-open-network,avalanche-2"
 
 # Simple in-memory cache
-_cache = {"market": None, "ts": 0, "price": {}, "top": {}}
+_cache = {"market": None, "ts": 0, "price": {}, "top": {}, "deriv": {}}
 
 
 @router.get("/top/{limit}")
@@ -218,23 +218,23 @@ async def get_cashtag_metrics(symbols: str = "btc,eth,sol,doge,xrp,ada,ton,avax"
     """
     import logging
     logger = logging.getLogger(__name__)
-    
+
     from services.sentiment import SentimentService
-    
+
     # Parse symbols
     symbol_list = [s.strip().upper() for s in symbols.split(",")]
     logger.info(f"Fetching cashtag metrics for: {symbol_list}")
-    
+
     # Get metrics from sentiment service
     sentiment_service = SentimentService()
-    
+
     # Log if Twitter API is configured
     bearer = os.getenv("TWITTER_BEARER_TOKEN")
     if bearer:
         logger.info(f"Twitter API configured: Bearer token length = {len(bearer)}")
     else:
         logger.error("Twitter API NOT configured - cannot fetch data")
-    
+
     try:
         result = await sentiment_service.get_cashtag_metrics(symbol_list)
         logger.info(f"Cashtag result status: {result.get('status')}")
@@ -244,6 +244,75 @@ async def get_cashtag_metrics(symbols: str = "btc,eth,sol,doge,xrp,ada,ton,avax"
         raise
     finally:
         await sentiment_service.close()
+
+
+@router.get("/derivatives/{symbol}")
+async def get_derivatives_snapshot(symbol: str):
+    sym = (symbol or "").strip().upper()
+    if not sym or len(sym) > 15:
+        raise HTTPException(status_code=400, detail="Invalid symbol")
+
+    cache_key = sym
+    cached = _cache.get("deriv", {}).get(cache_key)
+    if cached:
+        cached_data, cached_ts = cached
+        if datetime.now().timestamp() - cached_ts < 30:
+            return cached_data
+
+    binance_symbol = f"{sym}USDT"
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0, proxies={}) as client:
+            prem_r = await client.get(
+                "https://fapi.binance.com/fapi/v1/premiumIndex",
+                params={"symbol": binance_symbol},
+            )
+            oi_r = await client.get(
+                "https://fapi.binance.com/fapi/v1/openInterest",
+                params={"symbol": binance_symbol},
+            )
+
+        prem = prem_r.json() if prem_r.status_code == 200 else None
+        oi = oi_r.json() if oi_r.status_code == 200 else None
+
+        mark_price = None
+        funding_rate = None
+        if isinstance(prem, dict):
+            try:
+                mp = prem.get("markPrice")
+                fr = prem.get("lastFundingRate")
+                mark_price = float(mp) if mp is not None else None
+                funding_rate = float(fr) if fr is not None else None
+            except Exception:
+                mark_price = None
+                funding_rate = None
+
+        open_interest_base = None
+        if isinstance(oi, dict):
+            try:
+                oiv = oi.get("openInterest")
+                open_interest_base = float(oiv) if oiv is not None else None
+            except Exception:
+                open_interest_base = None
+
+        open_interest_usd = None
+        if open_interest_base is not None and mark_price is not None:
+            open_interest_usd = open_interest_base * mark_price
+
+        payload = {
+            "symbol": sym,
+            "binance_symbol": binance_symbol,
+            "funding_rate": funding_rate,
+            "mark_price": mark_price,
+            "open_interest_base": open_interest_base,
+            "open_interest_usd": open_interest_usd,
+        }
+
+        _cache["deriv"][cache_key] = (payload, datetime.now().timestamp())
+        return payload
+
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch derivatives: {str(e)}")
 
 
 @router.get("/image-proxy/{path:path}")
