@@ -15,7 +15,7 @@ COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")
 IDS = "bitcoin,ethereum,solana,dogecoin,ripple,cardano,the-open-network,avalanche-2"
 
 # Simple in-memory cache
-_cache = {"market": None, "ts": 0, "price": {}, "top": {}, "deriv": {}}
+_cache = {"market": None, "ts": 0, "price": {}, "top": {}, "deriv": {}, "tech": {}}
 
 
 @router.get("/top/{limit}")
@@ -313,6 +313,105 @@ async def get_derivatives_snapshot(symbol: str):
 
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to fetch derivatives: {str(e)}")
+
+
+@router.get("/technicals/{symbol}")
+async def get_technicals_snapshot(symbol: str, interval: str = "1h", limit: int = 200):
+    sym = (symbol or "").strip().upper()
+    if not sym or len(sym) > 15:
+        raise HTTPException(status_code=400, detail="Invalid symbol")
+
+    allowed_intervals = {
+        "1m",
+        "3m",
+        "5m",
+        "15m",
+        "30m",
+        "1h",
+        "2h",
+        "4h",
+        "6h",
+        "8h",
+        "12h",
+        "1d",
+    }
+    if interval not in allowed_intervals:
+        raise HTTPException(status_code=400, detail="Invalid interval")
+
+    if limit < 60 or limit > 1000:
+        raise HTTPException(status_code=400, detail="Invalid limit")
+
+    cache_key = f"{sym}:{interval}:{limit}"
+    cached = _cache.get("tech", {}).get(cache_key)
+    if cached:
+        cached_data, cached_ts = cached
+        if datetime.now().timestamp() - cached_ts < 30:
+            return cached_data
+
+    binance_symbol = f"{sym}USDT"
+
+    def _sma(values: list[float], period: int) -> float | None:
+        if len(values) < period:
+            return None
+        return sum(values[-period:]) / float(period)
+
+    def _rsi(values: list[float], period: int = 14) -> float | None:
+        if len(values) < period + 1:
+            return None
+        deltas = [values[i] - values[i - 1] for i in range(1, len(values))]
+        gains = [max(d, 0.0) for d in deltas]
+        losses = [max(-d, 0.0) for d in deltas]
+
+        avg_gain = sum(gains[:period]) / float(period)
+        avg_loss = sum(losses[:period]) / float(period)
+        for i in range(period, len(gains)):
+            avg_gain = (avg_gain * (period - 1) + gains[i]) / float(period)
+            avg_loss = (avg_loss * (period - 1) + losses[i]) / float(period)
+
+        if avg_loss == 0:
+            return 100.0
+        rs = avg_gain / avg_loss
+        return 100.0 - (100.0 / (1.0 + rs))
+
+    try:
+        url = "https://api.binance.com/api/v3/klines"
+        params = {"symbol": binance_symbol, "interval": interval, "limit": limit}
+        async with httpx.AsyncClient(timeout=8.0, proxies={}) as client:
+            r = await client.get(url, params=params)
+        if r.status_code != 200:
+            raise HTTPException(status_code=502, detail="Binance unavailable")
+
+        raw = r.json()
+        if not isinstance(raw, list) or not raw:
+            raise HTTPException(status_code=502, detail="Invalid kline data")
+
+        closes: list[float] = []
+        for row in raw:
+            if not isinstance(row, list) or len(row) < 5:
+                continue
+            try:
+                closes.append(float(row[4]))
+            except Exception:
+                continue
+
+        if len(closes) < 60:
+            raise HTTPException(status_code=502, detail="Insufficient kline data")
+
+        payload = {
+            "symbol": sym,
+            "binance_symbol": binance_symbol,
+            "interval": interval,
+            "last_close": closes[-1],
+            "rsi_14": _rsi(closes, 14),
+            "sma_20": _sma(closes, 20),
+            "sma_50": _sma(closes, 50),
+        }
+        _cache["tech"][cache_key] = (payload, datetime.now().timestamp())
+        return payload
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch technicals: {str(e)}")
 
 
 @router.get("/image-proxy/{path:path}")

@@ -289,6 +289,15 @@ function _derivativesSnapshotLine(sym, d) {
   return `$${String(sym).toUpperCase()}: funding_rate=${fr ?? 'unknown'}, open_interest_usd=${oiUsd ?? 'unknown'}, open_interest_base=${oiBase ?? 'unknown'}, mark_price=${mp ?? 'unknown'}`;
 }
 
+function _technicalsSnapshotLine(sym, t) {
+  if (!sym || !t || typeof t !== 'object') return '';
+  const rsi = (typeof t.rsi_14 === 'number') ? t.rsi_14 : null;
+  const sma20 = (typeof t.sma_20 === 'number') ? t.sma_20 : null;
+  const sma50 = (typeof t.sma_50 === 'number') ? t.sma_50 : null;
+  const iv = t.interval ? String(t.interval) : 'unknown';
+  return `$${String(sym).toUpperCase()}: rsi_14=${rsi ?? 'unknown'}, sma_20=${sma20 ?? 'unknown'}, sma_50=${sma50 ?? 'unknown'}, technicals_interval=${iv}`;
+}
+
 async function _buildMissionTask(task) {
   let tickers = _extractTickers(task);
   let coins = marketCoins;
@@ -323,15 +332,21 @@ async function _buildMissionTask(task) {
   if (!snap) return task;
 
   let dLine = '';
+  let tLine = '';
   const mainTicker = (tickers && tickers.length) ? String(tickers[0]).toUpperCase() : '';
   if (mainTicker) {
     try {
       const d = await API.derivatives(mainTicker);
       dLine = _derivativesSnapshotLine(mainTicker, d);
     } catch {}
+
+    try {
+      const t = await API.technicals(mainTicker, '1h');
+      tLine = _technicalsSnapshotLine(mainTicker, t);
+    } catch {}
   }
 
-  const extra = dLine ? `\n${dLine}` : '';
+  const extra = `${dLine ? `\n${dLine}` : ''}${tLine ? `\n${tLine}` : ''}`;
   return `${task}\n\nLIVE MARKET SNAPSHOT (do not contradict; if missing metrics -> Unknown):\n${snap}${extra}`;
 }
 

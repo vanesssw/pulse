@@ -140,6 +140,18 @@ const API = {
     return null;
   },
 
+  async technicals(symbol, interval = '1h') {
+    const s = String(symbol || '').trim();
+    if (!s) return null;
+    try {
+      if (await this._backendAvailable()) {
+        const iv = String(interval || '1h');
+        return await this._req('GET', `/api/market/technicals/${encodeURIComponent(s)}?interval=${encodeURIComponent(iv)}`);
+      }
+    } catch {}
+    return null;
+  },
+
   // ── Radar ──
   async radarSignals(limit = 80) {
     try {
